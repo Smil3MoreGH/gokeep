@@ -6,23 +6,26 @@ import (
 	"net/http"
 
 	"github.com/Smil3MoreGH/gokeep/internal/handler"
+	"github.com/Smil3MoreGH/gokeep/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
 func main() {
+	repo, err := storage.NewNoteRepository("notes.db")
+	if err != nil {
+		log.Fatalf("Fehler beim Öffnen der Datenbank: %v", err)
+	}
+
 	r := chi.NewRouter()
 
-	// Health Check
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("pong"))
 	})
 
-	// Neue Route: /notes
-	r.Get("/notes", handler.GetNotesHandler)
+	r.Get("/notes", handler.NewGetNotesHandler(repo))
 
 	fmt.Println("Server läuft auf http://localhost:8080")
-	err := http.ListenAndServe(":8080", r)
-	if err != nil {
+	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatal(err)
 	}
 }
