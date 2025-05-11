@@ -23,6 +23,7 @@ func main() {
 	})
 
 	r.Get("/notes", handler.NewGetNotesHandler(repo))
+	r.Post("/notes", handler.NewPostNoteHandler(repo))
 
 	fmt.Println("Server läuft auf http://localhost:8080")
 	if err := http.ListenAndServe(":8080", r); err != nil {
