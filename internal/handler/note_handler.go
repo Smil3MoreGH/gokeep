@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Smil3MoreGH/gokeep/internal/domain"
 	"github.com/google/uuid"
-	"github.com/paulh/gokeep/internal/domain"
 )
 
 func GetNotesHandler(w http.ResponseWriter, r *http.Request) {

@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/Smil3MoreGH/gokeep/internal/handler"
 	"github.com/go-chi/chi/v5"
-	"github.com/paulh/gokeep/internal/handler"
 )
 
 func main() {
