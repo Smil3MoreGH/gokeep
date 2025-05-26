@@ -97,8 +97,8 @@ func (a *App) renderNewNote() app.UI {
 				Class("note-content-input").
 				Placeholder("Take a note...").
 				Rows(3).
-				Value(a.newNote.Content).
-				OnInput(a.onNewNoteContentInput),
+				Text(a.newNote.Content).
+				On("input", a.onNewNoteContentInput),
 			app.Div().Class("note-actions").Body(
 				app.Button().
 					Class("btn btn-primary").
@@ -151,23 +151,23 @@ func (a *App) renderError() app.UI {
 
 func (a *App) onSearchInput(ctx app.Context, e app.Event) {
 	a.searchTerm = ctx.JSSrc().Get("value").String()
-	a.Update()
+	ctx.Update()
 }
 
 func (a *App) onNewNoteClick(ctx app.Context, e app.Event) {
 	a.showNewNote = true
 	a.newNote = models.Note{}
-	a.Update()
+	ctx.Update()
 }
 
 func (a *App) onNewNoteTitleInput(ctx app.Context, e app.Event) {
 	a.newNote.Title = ctx.JSSrc().Get("value").String()
-	a.Update()
+	ctx.Update()
 }
 
 func (a *App) onNewNoteContentInput(ctx app.Context, e app.Event) {
 	a.newNote.Content = ctx.JSSrc().Get("value").String()
-	a.Update()
+	ctx.Update()
 }
 
 func (a *App) onSaveNewNote(ctx app.Context, e app.Event) {
@@ -177,30 +177,30 @@ func (a *App) onSaveNewNote(ctx app.Context, e app.Event) {
 func (a *App) onCancelNewNote(ctx app.Context, e app.Event) {
 	a.showNewNote = false
 	a.newNote = models.Note{}
-	a.Update()
+	ctx.Update()
 }
 
-func (a *App) onEditNote(noteID int64) {
+func (a *App) onEditNote(ctx app.Context, noteID int64) {
 	a.editingNoteID = noteID
-	a.Update()
+	ctx.Update()
 }
 
-func (a *App) onDeleteNote(noteID int64) {
-	a.deleteNote(noteID)
+func (a *App) onDeleteNote(ctx app.Context, noteID int64) {
+	a.deleteNote(ctx, noteID)
 }
 
-func (a *App) onSaveNote(note models.Note) {
-	a.updateNote(note)
+func (a *App) onSaveNote(ctx app.Context, note models.Note) {
+	a.updateNote(ctx, note)
 }
 
-func (a *App) onCancelEdit() {
+func (a *App) onCancelEdit(ctx app.Context) {
 	a.editingNoteID = 0
-	a.Update()
+	ctx.Update()
 }
 
 func (a *App) onCloseError(ctx app.Context, e app.Event) {
 	a.error = nil
-	a.Update()
+	ctx.Update()
 }
 
 // Helper Methods
@@ -223,14 +223,14 @@ func (a *App) getFilteredNotes() []models.Note {
 
 func (a *App) loadNotes(ctx app.Context) {
 	a.isLoading = true
-	a.Update()
+	ctx.Update()
 
 	go func() {
 		resp, err := http.Get("/api/notes")
 		if err != nil {
 			a.error = err
 			a.isLoading = false
-			a.Update()
+			ctx.Update()
 			return
 		}
 		defer resp.Body.Close()
@@ -239,13 +239,13 @@ func (a *App) loadNotes(ctx app.Context) {
 		if err := json.NewDecoder(resp.Body).Decode(&notes); err != nil {
 			a.error = err
 			a.isLoading = false
-			a.Update()
+			ctx.Update()
 			return
 		}
 
 		a.notes = notes
 		a.isLoading = false
-		a.Update()
+		ctx.Update()
 	}()
 }
 
@@ -253,7 +253,7 @@ func (a *App) createNote(ctx app.Context) {
 	noteJSON, err := json.Marshal(a.newNote)
 	if err != nil {
 		a.error = err
-		a.Update()
+		ctx.Update()
 		return
 	}
 
@@ -261,7 +261,7 @@ func (a *App) createNote(ctx app.Context) {
 		resp, err := http.Post("/api/notes", "application/json", bytes.NewReader(noteJSON))
 		if err != nil {
 			a.error = err
-			a.Update()
+			ctx.Update()
 			return
 		}
 		defer resp.Body.Close()
@@ -269,22 +269,22 @@ func (a *App) createNote(ctx app.Context) {
 		var createdNote models.Note
 		if err := json.NewDecoder(resp.Body).Decode(&createdNote); err != nil {
 			a.error = err
-			a.Update()
+			ctx.Update()
 			return
 		}
 
 		a.notes = append([]models.Note{createdNote}, a.notes...)
 		a.showNewNote = false
 		a.newNote = models.Note{}
-		a.Update()
+		ctx.Update()
 	}()
 }
 
-func (a *App) updateNote(note models.Note) {
+func (a *App) updateNote(ctx app.Context, note models.Note) {
 	noteJSON, err := json.Marshal(note)
 	if err != nil {
 		a.error = err
-		a.Update()
+		ctx.Update()
 		return
 	}
 
@@ -292,7 +292,10 @@ func (a *App) updateNote(note models.Note) {
 		req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("/api/notes/%d", note.ID), bytes.NewReader(noteJSON))
 		if err != nil {
 			a.error = err
-			a.Update()
+			a.editingNoteID = 0
+			ctx.Dispatch(func(ctx app.Context) {
+				ctx.Update()
+			})
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -300,7 +303,10 @@ func (a *App) updateNote(note models.Note) {
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			a.error = err
-			a.Update()
+			a.editingNoteID = 0
+			ctx.Dispatch(func(ctx app.Context) {
+				ctx.Update()
+			})
 			return
 		}
 		defer resp.Body.Close()
@@ -313,23 +319,29 @@ func (a *App) updateNote(note models.Note) {
 			}
 		}
 		a.editingNoteID = 0
-		a.Update()
+		ctx.Dispatch(func(ctx app.Context) {
+			ctx.Update()
+		})
 	}()
 }
 
-func (a *App) deleteNote(noteID int64) {
+func (a *App) deleteNote(ctx app.Context, noteID int64) {
 	go func() {
 		req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("/api/notes/%d", noteID), nil)
 		if err != nil {
 			a.error = err
-			a.Update()
+			ctx.Dispatch(func(ctx app.Context) {
+				ctx.Update()
+			})
 			return
 		}
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			a.error = err
-			a.Update()
+			ctx.Dispatch(func(ctx app.Context) {
+				ctx.Update()
+			})
 			return
 		}
 		defer resp.Body.Close()
@@ -342,7 +354,9 @@ func (a *App) deleteNote(noteID int64) {
 			}
 		}
 		a.notes = filtered
-		a.Update()
+		ctx.Dispatch(func(ctx app.Context) {
+			ctx.Update()
+		})
 	}()
 }
 

@@ -13,10 +13,10 @@ type NoteCard struct {
 
 	Note      models.Note
 	IsEditing bool
-	OnEdit    func(noteID int64)
-	OnDelete  func(noteID int64)
-	OnSave    func(note models.Note)
-	OnCancel  func()
+	OnEdit    func(ctx app.Context, noteID int64)
+	OnDelete  func(ctx app.Context, noteID int64)
+	OnSave    func(ctx app.Context, note models.Note)
+	OnCancel  func(ctx app.Context)
 
 	editTitle   string
 	editContent string
@@ -96,8 +96,8 @@ func (c *NoteCard) renderEditMode() app.UI {
 				Class("note-content-input").
 				Placeholder("Take a note...").
 				Rows(5).
-				Value(c.editContent).
-				OnInput(c.onContentInput),
+				Text(c.editContent).
+				On("input", c.onContentInput),
 
 			// Color picker
 			c.renderColorPicker(),
@@ -137,7 +137,7 @@ func (c *NoteCard) renderColorPicker() app.UI {
 				Style("background-color", color).
 				OnClick(func(ctx app.Context, e app.Event) {
 					c.Note.Color = color
-					c.Update()
+					ctx.Update()
 				}).
 				Body(
 					app.If(
@@ -170,7 +170,7 @@ func (c *NoteCard) renderMarkdown(content string) string {
 
 func (c *NoteCard) onEditClick(ctx app.Context, e app.Event) {
 	if c.OnEdit != nil {
-		c.OnEdit(c.Note.ID)
+		c.OnEdit(ctx, c.Note.ID)
 	}
 }
 
@@ -178,38 +178,35 @@ func (c *NoteCard) onDeleteClick(ctx app.Context, e app.Event) {
 	if c.OnDelete != nil {
 		// Simple confirmation
 		if app.Window().Call("confirm", "Delete this note?").Bool() {
-			c.OnDelete(c.Note.ID)
+			c.OnDelete(ctx, c.Note.ID)
 		}
 	}
 }
 
 func (c *NoteCard) onTitleInput(ctx app.Context, e app.Event) {
 	value := ctx.JSSrc().Get("value").String()
-	c.Dispatch(func(ctx app.Context) {
-		c.editTitle = value
-	})
+	c.editTitle = value
+	ctx.Update()
 }
 
 func (c *NoteCard) onContentInput(ctx app.Context, e app.Event) {
 	value := ctx.JSSrc().Get("value").String()
-	c.Dispatch(func(ctx app.Context) {
-		c.editContent = value
-	})
+	c.editContent = value
+	ctx.Update()
 }
 
 func (c *NoteCard) onSaveClick(ctx app.Context, e app.Event) {
 	if c.OnSave != nil {
 		c.Note.Title = c.editTitle
 		c.Note.Content = c.editContent
-		c.OnSave(c.Note)
+		c.OnSave(ctx, c.Note)
 	}
 }
 
 func (c *NoteCard) onCancelClick(ctx app.Context, e app.Event) {
 	if c.OnCancel != nil {
-		// Reset to original values
 		c.editTitle = c.Note.Title
 		c.editContent = c.Note.Content
-		c.OnCancel()
+		c.OnCancel(ctx)
 	}
 }
