@@ -24,6 +24,14 @@ var webFS embed.FS
 
 func main() {
 	// Initialise SQLite database (creates file if it does not exist)
+	files, err := webFS.ReadDir("web")
+	if err != nil {
+		log.Fatal("webFS.ReadDir:", err)
+	}
+	for _, f := range files {
+		log.Println("Embedded file:", f.Name())
+	}
+
 	db, err := database.NewDB("gokeep.db")
 	if err != nil {
 		log.Fatalf("failed to initialise database: %v", err)
@@ -64,7 +72,7 @@ func main() {
 	})
 
 	// Serve static assets that the Go‑app bundle references (favicon, CSS, etc.)
-	r.Handle("/web/*", http.StripPrefix("/web/", http.FileServer(http.FS(webFS))))
+	r.Handle("/web/*", http.FileServer(http.FS(webFS)))
 
 	// Wire up JSON API underneath /api
 	setupAPIRoutes(r, api)
