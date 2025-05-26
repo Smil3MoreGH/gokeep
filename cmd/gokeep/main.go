@@ -1,10 +1,8 @@
-// cmd/gokeep/main.go
-package gokeep
+package main
 
 import (
 	"context"
 	"embed"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,72 +12,50 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/maxence-charriere/go-app/v9/pkg/app"
+	"github.com/maxence-charriere/go-app/v10/pkg/app"
+
+	"github.com/Smil3MoreGH/gokeep/internal/database"
+	"github.com/Smil3MoreGH/gokeep/internal/handlers"
+	"github.com/Smil3MoreGH/gokeep/internal/ui"
 )
 
 //go:embed web/*
 var webFS embed.FS
 
 func main() {
-	// Initialize the app
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Initialise SQLite database (creates file if it does not exist)
+	db, err := database.NewDB("gokeep.db")
+	if err != nil {
+		log.Fatalf("failed to initialise database: %v", err)
+	}
+	defer db.Close()
 
-	// Setup signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	// Repository & REST handler layer
+	repo := database.NewNoteRepository(db)
+	api := handlers.NewAPIHandler(repo)
 
-	// Create router
+	// Register UI route for client‑side Go‑app components when running in the browser
+	app.Route("/", func() app.Composer { return &ui.App{} })
+	app.RunWhenOnBrowser()
+
+	// Router / middleware stack
 	r := chi.NewRouter()
-
-	// Middleware
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
-	// Setup routes
-	setupRoutes(r)
-
-	// Start server
-	srv := &http.Server{
-		Addr:    ":8080",
-		Handler: r,
-	}
-
-	go func() {
-		log.Printf("Starting server on %s", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	<-sigChan
-	log.Println("Shutting down server...")
-
-	// Graceful shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer shutdownCancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
-	}
-
-	log.Println("Server stopped")
-}
-
-func setupRoutes(r chi.Router) {
-	// go-app handler
+	// Serve the UI (root path)
 	r.Handle("/", &app.Handler{
 		Name:        "Gokeep",
-		Description: "A minimalist note-taking app built with Go",
+		Title:       "Gokeep",
+		Description: "A minimalist note‑taking app written 100 % in Go",
 		Styles: []string{
-			"/web/app.css",
+			"/web/app.css", // optional – remove if you do not ship CSS yet
 		},
 		Scripts: []string{
-			"/web/app.js",
+			"/web/app.js", // optional – remove if you do not ship JS yet
 		},
 		CacheableResources: []string{
 			"/web/app.css",
@@ -87,52 +63,57 @@ func setupRoutes(r chi.Router) {
 		},
 	})
 
-	// Static files
+	// Serve static assets that the Go‑app bundle references (favicon, CSS, etc.)
 	r.Handle("/web/*", http.StripPrefix("/web/", http.FileServer(http.FS(webFS))))
 
-	// API routes
+	// Wire up JSON API underneath /api
+	setupAPIRoutes(r, api)
+
+	// HTTP server with graceful shutdown
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: r,
+	}
+
+	// Run server in background goroutine so we can listen for OS signals
+	go func() {
+		log.Printf("Gokeep listening on http://localhost%s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("http server stopped unexpectedly: %v", err)
+		}
+	}()
+
+	// Wait for Ctrl‑C / SIGTERM
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+
+	log.Println("shutdown signal received – stopping …")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
+	}
+}
+
+// setupAPIRoutes registers /api/... endpoints backed by the API handler.
+func setupAPIRoutes(r chi.Router, h *handlers.APIHandler) {
 	r.Route("/api", func(r chi.Router) {
-		r.Use(middleware.SetHeader("Content-Type", "application/json"))
+		r.Use(middleware.SetHeader("Content‑Type", "application/json"))
 
 		r.Route("/notes", func(r chi.Router) {
-			r.Get("/", getAllNotes)
-			r.Post("/", createNote)
-			r.Get("/search", searchNotes)
+			r.Get("/", h.GetAllNotes)
+			r.Post("/", h.CreateNote)
+
+			// Search endpoint: /api/notes/search?q=foo
+			r.Get("/search", h.SearchNotes)
 
 			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", getNote)
-				r.Put("/", updateNote)
-				r.Delete("/", deleteNote)
+				r.Get("/", h.GetNote)
+				r.Put("/", h.UpdateNote)
+				r.Delete("/", h.DeleteNote)
 			})
 		})
 	})
-}
-
-// Placeholder handlers - to be implemented
-func getAllNotes(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, `{"notes": []}`)
-}
-
-func createNote(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintln(w, `{"id": 1, "title": "New Note", "content": ""}`)
-}
-
-func getNote(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	fmt.Fprintf(w, `{"id": %s, "title": "Note", "content": "Content"}`, id)
-}
-
-func updateNote(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	fmt.Fprintf(w, `{"id": %s, "title": "Updated Note", "content": "Updated"}`, id)
-}
-
-func deleteNote(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func searchNotes(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	fmt.Fprintf(w, `{"query": "%s", "notes": []}`, query)
 }
